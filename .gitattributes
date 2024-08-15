@@ -1,0 +1,8 @@
+# Ensure all text files use LF
+* text=auto
+*.sh text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+
+# Scripts for Windows
+*.bat text eol=crlf

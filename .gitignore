@@ -1,0 +1,7 @@
+.env
+config.json
+node_modules/
+nfl_picks.csv
+field.jpg
+pickem.png
+.eslintrc.json
