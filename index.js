@@ -1,6 +1,5 @@
 require('dotenv').config();
 
-
 const fs = require('node:fs');
 const path = require('node:path');
 const picksData = require('./picksData');
@@ -8,6 +7,7 @@ const { Client, Collection, Events, GatewayIntentBits, ActionRowBuilder, ButtonB
 //const { token } = require('./config.json');
 //const { CronJob } = require('cron');
 
+//#region Client and Config Setup
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -51,80 +51,109 @@ for (const folder of commandFolders) {
         }
     }
 }
+//#endregion
 
+//#region Client Ready Event
 client.once('ready', async () => {
     console.log('NFL Pick\'Em Bot is online!');
     //await createPollFromMatchups();
     //scheduleLockTime();
 });
 
-//Message Component Interactions
-client.on(Events.InteractionCreate, async interaction => {
-    if (!interaction.isButton()) return;
+// Example usage
+/*
+client.once('ready', async () => {
+    const guild = await client.guilds.fetch(guildId); // Replace with your guild ID
+    const categoryName = 'isaacs-picks'; // Replace with the name of the category you want to target
 
+    const category = await getCategoryByName(guild, categoryName);
+
+    if (category) {
+        console.log(`Found category: ${category.name} with ID: ${category.id}`);
+        // Now you can work with the category object
+    }
+});
+*/
+//#endregion
+
+//#region Interaction Handling
+client.on(Events.InteractionCreate, async interaction => {
+    if (interaction.isButton()) {
+        await handleButtonInteraction(interaction);
+    } else if (interaction.isChatInputCommand()) {
+        await handleCommandInteraction(interaction);
+    }
+});
+
+//Button Interaction Handling
+async function handleButtonInteraction(interaction) {
     try {
         const [team] = interaction.customId.split('-win');
         const userId = interaction.user.id;
 
-        // Initialize user's picks if not already present
         if (!picksData[userId]) {
             picksData[userId] = {};
         }
 
-        // Store the user's pick
         picksData[userId][interaction.message.content] = team;
 
-        console.log('Picks Data:', picksData); // Debugging line
+        console.log('Picks Data:', picksData);
 
-        // Acknowledge the interaction without sending a reply
         await interaction.deferUpdate();
 
-        // Optional: Update the message to reflect the user's choice
+        // Fetch the original message to update
         const message = await interaction.message.fetch();
+        
+        // Modify the button styles based on the user's pick
         const components = message.components.map(row => {
             return new ActionRowBuilder().addComponents(
                 row.components.map(button => {
-                    // Create a new button with the same properties but disabled if it's the one clicked
-                    return new ButtonBuilder()
-                        .setCustomId(button.customId)
-                        .setLabel(button.label)
-                        .setStyle(button.style)
-                        .setDisabled(picksData[userId][interaction.message.content] === button.label);
-                    //.setDisabled(button.customId === interaction.customId); Was used initially for individal pick channel buttons. 
+                    if (button.customId === interaction.customId) {
+                        return new ButtonBuilder()
+                            .setCustomId(button.customId)
+                            .setLabel(button.label)
+                            .setStyle(ButtonStyle.Primary) // Selected button
+                            .setEmoji(button.emoji)
+                            .setDisabled(false);
+                    } else {
+                        return new ButtonBuilder()
+                            .setCustomId(button.customId)
+                            .setLabel(button.label)
+                            .setStyle(ButtonStyle.Secondary) // Other button
+                            .setEmoji(button.emoji)
+                            .setDisabled(false);
+                    }
                 })
             );
         });
-
+        
+        // Add the "Selected" line
+        const selectedTeam = interaction.customId.split('-win')[0];
+        const content = `${interaction.message.content}\nSelected: ${selectedTeam}`;
+        
         await message.edit({ components: components });
 
     } catch (error) {
         console.error('Error handling button interaction:', error);
-        // Use deferUpdate() to avoid the need for an error reply
         if (!interaction.replied) {
             await interaction.deferUpdate();
             await interaction.followUp({ content: 'There was an error handling your selection. Please try again later.', ephemeral: true });
         }
     }
-});
+}
 
-
-//Slash Command Interactions
-client.on(Events.InteractionCreate, async interaction => {
-    if (!interaction.isChatInputCommand()) return;
-
-    const command = interaction.client.commands.get(interaction.commandName);
+//Command Interaction Handling
+async function handleCommandInteraction(interaction) {
+    const command = client.commands.get(interaction.commandName);
 
     if (!command) {
         console.error(`No command matching ${interaction.commandName} was found.`);
         return;
     }
 
-    // Check if the command is being used in the allowed channel
-    if (restrictedCommands.includes(interaction.commandName)) {
-        if (interaction.channel.id !== commandChannelId) {
-            await interaction.reply({ content: 'This command cannot be used in this channel.', ephemeral: true });
-            return;
-        }
+    if (restrictedCommands.includes(interaction.commandName) && interaction.channel.id !== commandChannelId) {
+        await interaction.reply({ content: 'This command cannot be used in this channel.', ephemeral: true });
+        return;
     }
 
     try {
@@ -137,7 +166,7 @@ client.on(Events.InteractionCreate, async interaction => {
             await interaction.reply({ content: 'There was an error while executing this command!', ephemeral: true });
         }
     }
-});
+}
 
 /* Schedule a job to lock the polls and export picks at 11:59 AM on Sundays
 
@@ -187,20 +216,6 @@ async function getCategoryByName(guild, categoryName) {
     }
 }
 
-// Example usage
-client.once('ready', async () => {
-    const guild = await client.guilds.fetch(guildId); // Replace with your guild ID
-    const categoryName = 'isaacs-picks'; // Replace with the name of the category you want to target
-
-    const category = await getCategoryByName(guild, categoryName);
-
-    if (category) {
-        console.log(`Found category: ${category.name} with ID: ${category.id}`);
-        // Now you can work with the category object
-    }
-});
-
-
 async function createButtonsFromMatchups() {
     let matchupOrder = [];
     try {
@@ -224,11 +239,13 @@ async function createButtonsFromMatchups() {
                         new ButtonBuilder()
                             .setCustomId(`${home}-win`)
                             .setLabel(home)
-                            .setStyle(ButtonStyle.Primary),
+                            .setStyle(ButtonStyle.Primary)
+                            .setEmoji(home),
                         new ButtonBuilder()
                             .setCustomId(`${away}-win`)
                             .setLabel(away)
-                            .setStyle(ButtonStyle.Primary),
+                            .setStyle(ButtonStyle.Primary)
+                            .setEmoji(away),
                     );
 
                 await selectionChannel.send({ content: `${home} @ ${away}`, components: [row] });
