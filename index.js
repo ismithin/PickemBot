@@ -17,7 +17,7 @@ const client = new Client({
 });
 
 // Variables
-const token = process.env.DISCORD_TOKEN;
+const token = process.env.BOT_TOKEN;
 const guildId = process.env.GUILD_ID;
 const matchupChannelId = process.env.MATCHUP_CHANNEL_ID; // Channel where the manager posts the matchup matchup
 const selectionChannelId = process.env.SELECTION_CHANNEL_ID; // Channel where the poll will be posted
@@ -165,6 +165,41 @@ function scheduleLockTime() {
     job.start();
 }
 */
+
+async function getCategoryByName(guild, categoryName) {
+    try {
+        // Fetch all categories in the guild
+        const categories = await guild.channels.fetch();
+        console.log("Categories:", categories);
+
+        // Find the category with the given name
+        const targetCategory = categories.find(category => category.type === 'GUILD_CATEGORY' && category.name === categoryName);
+
+        if (!targetCategory) {
+            console.error(`Category with name "${categoryName}" not found.`);
+            return null;
+        }
+
+        return targetCategory;
+    } catch (error) {
+        console.error('Failed to fetch categories:', error);
+        return null;
+    }
+}
+
+// Example usage
+client.once('ready', async () => {
+    const guild = await client.guilds.fetch(guildId); // Replace with your guild ID
+    const categoryName = 'isaacs-picks'; // Replace with the name of the category you want to target
+
+    const category = await getCategoryByName(guild, categoryName);
+
+    if (category) {
+        console.log(`Found category: ${category.name} with ID: ${category.id}`);
+        // Now you can work with the category object
+    }
+});
+
 
 async function createButtonsFromMatchups() {
     let matchupOrder = [];

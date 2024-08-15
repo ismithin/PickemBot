@@ -1,5 +1,6 @@
+require('dotenv').config(); // Add this line to load the environment variables
+
 const { REST, Routes } = require('discord.js');
-const { clientId, guildId, token } = require('./config.json');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -23,6 +24,11 @@ for (const folder of commandFolders) {
         }
     }
 }
+
+// Fetch the clientId and guildId from environment variables
+const clientId = process.env.CLIENT_ID;
+const guildId = process.env.GUILD_ID;
+const token = process.env.BOT_TOKEN;
 
 // Construct and prepare an instance of the REST module
 const rest = new REST().setToken(token);
