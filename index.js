@@ -3,8 +3,9 @@ require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
 const picksData = require('./picksData');
-const { Client, Collection, Events, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-//const { token } = require('./config.json');
+const emojis = require('./emojis.json');
+const userList = require('./users.json');
+const { Client, Collection, Events, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, PermissionOverWrites } = require('discord.js');
 //const { CronJob } = require('cron');
 
 //#region Client and Config Setup
@@ -35,7 +36,10 @@ const commandFolders = fs.readdirSync(foldersPath);
 module.exports = {
     createButtonsFromMatchups,
     exportPicksToCSV,
+    disableButtons,
 };
+//createUserChannels,
+
 
 for (const folder of commandFolders) {
     const commandsPath = path.join(foldersPath, folder);
@@ -85,17 +89,21 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 });
 
-//Button Interaction Handling
+// Button Interaction Handling
 async function handleButtonInteraction(interaction) {
     try {
         const [team] = interaction.customId.split('-win');
         const userId = interaction.user.id;
 
+        // Use the original message content as the key (without the "Selected" line)
+        const matchup = interaction.message.content.split('\n')[0];
+
         if (!picksData[userId]) {
             picksData[userId] = {};
         }
 
-        picksData[userId][interaction.message.content] = team;
+        // Update the pick for the current matchup
+        picksData[userId][matchup] = team;
 
         console.log('Picks Data:', picksData);
 
@@ -103,7 +111,7 @@ async function handleButtonInteraction(interaction) {
 
         // Fetch the original message to update
         const message = await interaction.message.fetch();
-        
+
         // Modify the button styles based on the user's pick
         const components = message.components.map(row => {
             return new ActionRowBuilder().addComponents(
@@ -126,12 +134,12 @@ async function handleButtonInteraction(interaction) {
                 })
             );
         });
-        
+
         // Add the "Selected" line
-        const selectedTeam = interaction.customId.split('-win')[0];
-        const content = `${interaction.message.content}\nSelected: ${selectedTeam}`;
-        
-        await message.edit({ components: components });
+        const content = `${matchup}\nSelected: ${team}`;
+
+        // Update both the content and components of the message
+        await message.edit({ content: content, components: components });
 
     } catch (error) {
         console.error('Error handling button interaction:', error);
@@ -167,59 +175,13 @@ async function handleCommandInteraction(interaction) {
         }
     }
 }
+//#endregion
 
-/* Schedule a job to lock the polls and export picks at 11:59 AM on Sundays
-
-function scheduleLockTime() {
-    const job = new CronJob('59 11 * * 0', async () => {
-        const selectionChannel = await client.channels.fetch(selectionChannelId);
-        const messages = await selectionChannel.messages.fetch({ limit: 100 });
-
-        messages.forEach(async (message) => {
-            if (message.components.length > 0) {
-                const disabledRow = message.components[0].components.map(button =>
-                    ButtonBuilder.from(button).setDisabled(true)
-                );
-
-                await message.edit({ components: [new ActionRowBuilder().addComponents(disabledRow)] });
-            }
-        });
-
-        console.log('Polls locked!');
-
-        // Export picks to CSV after locking
-        exportPicksToCSV();
-    });
-
-    job.start();
-}
-*/
-
-async function getCategoryByName(guild, categoryName) {
-    try {
-        // Fetch all categories in the guild
-        const categories = await guild.channels.fetch();
-        console.log("Categories:", categories);
-
-        // Find the category with the given name
-        const targetCategory = categories.find(category => category.type === 'GUILD_CATEGORY' && category.name === categoryName);
-
-        if (!targetCategory) {
-            console.error(`Category with name "${categoryName}" not found.`);
-            return null;
-        }
-
-        return targetCategory;
-    } catch (error) {
-        console.error('Failed to fetch categories:', error);
-        return null;
-    }
-}
-
+//#region Functions
 async function createButtonsFromMatchups() {
     let matchupOrder = [];
     try {
-
+        const userChannels = JSON.parse(await fs.promises.readFile('./pickchannels.json', 'utf8'));
         const matchupChannel = await client.channels.fetch(matchupChannelId);
         const matchupMessages = await matchupChannel.messages.fetch({ limit: 1 });
         const matchupMessage = matchupMessages.first();
@@ -229,33 +191,36 @@ async function createButtonsFromMatchups() {
             matchupOrder = matchupMessage.content.split('\n').map(line => line.trim());
             console.log('Matchups Order:', matchupOrder);
 
-            // Create the poll in the selection channel
-            const selectionChannel = await client.channels.fetch(selectionChannelId);
-
             for (const matchup of matchupOrder) {
                 const [home, away] = matchup.split(' @ ');
+
+                for (const [channelName, channelId] of Object.entries(userChannels)) {
+                const selectionChannel = await client.channels.fetch(channelId); 
+                //const selectionChannel = await client.channels.fetch(selectionChannelId);
+                
                 const row = new ActionRowBuilder()
                     .addComponents(
                         new ButtonBuilder()
                             .setCustomId(`${home}-win`)
                             .setLabel(home)
                             .setStyle(ButtonStyle.Primary)
-                            .setEmoji(home),
+                            .setEmoji({ id: emojis[home] }),
                         new ButtonBuilder()
                             .setCustomId(`${away}-win`)
                             .setLabel(away)
                             .setStyle(ButtonStyle.Primary)
-                            .setEmoji(away),
+                            .setEmoji({ id: emojis[away] }),
                     );
 
                 await selectionChannel.send({ content: `${home} @ ${away}`, components: [row] });
-            }
+                }
 
+            }
         } else {
             console.error('No matchup message found in the channel.');
         }
     } catch (error) {
-        console.error('Failed to fetch the matchup channel message:', error);
+        console.error('Failed to create buttons from matchups:', error);
     }
 }
 
@@ -314,5 +279,140 @@ async function exportPicksToCSV(client) {
         console.error('Failed to fetch the channel or the channel is not text-based. Could not send CSV file.');
     }
 }
+
+async function disableButtons(client) {
+    try {
+        const userChannels = JSON.parse(await fs.promises.readFile('./pickchannels.json', 'utf8'));
+
+        for (const [channelName, channelId] of Object.entries(userChannels)) {
+            const channel = await client.channels.fetch(channelId);
+            //const channel = await client.channels.fetch(selectionChannelId);
+
+
+            if (channel && channel.isTextBased()) {
+                const messages = await channel.messages.fetch({ limit: 100 });
+
+                messages.forEach(async (message) => {
+                    if (message.components.length > 0) {
+                        const disabledRow = message.components.map(row =>
+                            new ActionRowBuilder().addComponents(
+                                row.components.map(button =>
+                                    ButtonBuilder.from(button).setDisabled(true)
+                                )
+                            )
+                        );
+
+                        await message.edit({ components: disabledRow });
+                    }
+                });
+
+                //console.log(`Disabled buttons in channel: ${channelName}`);
+            }
+        }
+    } catch (error) {
+        console.error('Failed to disable buttons in channels:', error);
+    }
+}
+//#endregion
+
+//Abandoned Zone
+/*
+//Command for channel check and creation.
+async function createUserChannels(guild, client) {
+    // Fetch or create the category
+    let category = guild.channels.cache.find(c => c.name === 'test-personal-picks' && c.type === ChannelType.GuildCategory);
+
+    if (!category) {
+        category = await guild.channels.create({
+            name: 'test-personal-picks',
+            type: ChannelType.GuildCategory,
+        });
+        console.log('Created category "test-personal-picks"');
+    }
+    else {
+        console.log('test-personal-picks category already exists.');
+    }
+
+    const existingChannels = guild.channels.cache.filter(channel => channel.parentId === category.id);
+
+    for (const [userId, userName] of Object.entries(userList)) {
+        // Modify this line to append "-picks" to the username
+        const channelName = `${userName.toLowerCase().replace(/ /g, '-')}-picks`;
+        const existingChannel = existingChannels.find(channel => channel.name === channelName);
+
+        if (!existingChannel) {
+            await guild.channels.create({
+                name: channelName,
+                type: ChannelType.GuildText,
+                parent: category.id,
+                permissionOverwrites: [
+                    {
+                        id: userId,
+                        allow: ['VIEW_CHANNEL', 'SEND_MESSAGES'],
+                    },
+                    {
+                        id: guild.id, // @everyone role
+                        deny: ['VIEW_CHANNEL'],
+                    },
+                    {
+                        id: process.env.BOT_ID,
+                        allow: ['VIEW_CHANNEL', 'SEND_MESSAGES'],
+                    },
+                ],
+            });
+            console.log(`Created private channel for ${userName}`);
+        } else {
+            console.log(`Channel already exists for ${userName}`);
+        }
+    }
+}
+
+ Schedule a job to lock the polls and export picks at 11:59 AM on Sundays
+
+function scheduleLockTime() {
+    const job = new CronJob('59 11 * * 0', async () => {
+        const selectionChannel = await client.channels.fetch(selectionChannelId);
+        const messages = await selectionChannel.messages.fetch({ limit: 100 });
+
+        messages.forEach(async (message) => {
+            if (message.components.length > 0) {
+                const disabledRow = message.components[0].components.map(button =>
+                    ButtonBuilder.from(button).setDisabled(true)
+                );
+
+                await message.edit({ components: [new ActionRowBuilder().addComponents(disabledRow)] });
+            }
+        });
+
+        console.log('Polls locked!');
+
+        // Export picks to CSV after locking
+        exportPicksToCSV();
+    });
+
+    job.start();
+}
+
+async function getCategoryByName(guild, categoryName) {
+    try {
+        // Fetch all categories in the guild
+        const categories = await guild.channels.fetch();
+        console.log("Categories:", categories);
+
+        // Find the category with the given name
+        const targetCategory = categories.find(category => category.type === 'GUILD_CATEGORY' && category.name === categoryName);
+
+        if (!targetCategory) {
+            console.error(`Category with name "${categoryName}" not found.`);
+            return null;
+        }
+
+        return targetCategory;
+    } catch (error) {
+        console.error('Failed to fetch categories:', error);
+        return null;
+    }
+}
+*/
 
 client.login(token);
