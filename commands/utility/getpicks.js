@@ -1,23 +1,29 @@
-// getpicks.js
-const picksData = require('../../picksData');
-const { exportPicksToCSV } = require('../../index');
-const { Client, Events, SlashCommandBuilder } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
+const { exportPicksToCSV, disableButtons } = require('../../index');
+const { SlashCommandBuilder } = require('discord.js');
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('getpicks')
-        .setDescription('Export the picks data to a CSV file.'),
+        .setDescription('Export the picks data to a CSV file and disable all buttons.'),
     async execute(interaction) {
         try {
-            // Call the function and pass client as an argument
+            // Send an initial response to acknowledge the interaction
+            await interaction.reply({ content: 'Exporting picks to CSV and disabling buttons...', ephemeral: true });
+
+            // Disable all buttons after exporting the picks
+            await disableButtons(interaction.client);
+
+            //Send button disable confirmation message.
+            await interaction.editReply({ content: 'All buttons have been disabled.', ephemeral: true });
+
+            // Export the picks to a CSV file
             await exportPicksToCSV(interaction.client);
 
-            await interaction.reply({ content: 'Picks have been exported to CSV and sent to the designated user.', ephemeral: true });
+            // Send a final confirmation message
+            await interaction.editReply({ content: 'Picks have been exported to CSV, and all buttons have been disabled.', ephemeral: true });
         } catch (error) {
-            console.error('Error exporting picks to CSV:', error);
-            await interaction.reply({ content: 'There was an error exporting the picks to CSV. Please try again later.', ephemeral: true });
+            console.error('Error exporting picks or disabling buttons:', error);
+            await interaction.editReply({ content: 'There was an error exporting the picks to CSV or disabling the buttons. Please try again later.', ephemeral: true });
         }
     },
 };

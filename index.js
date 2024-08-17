@@ -40,7 +40,6 @@ module.exports = {
 };
 //createUserChannels,
 
-
 for (const folder of commandFolders) {
     const commandsPath = path.join(foldersPath, folder);
     const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
@@ -60,7 +59,6 @@ for (const folder of commandFolders) {
 //#region Client Ready Event
 client.once('ready', async () => {
     console.log('NFL Pick\'Em Bot is online!');
-    //await createPollFromMatchups();
     //scheduleLockTime();
 });
 
@@ -191,30 +189,42 @@ async function createButtonsFromMatchups() {
             matchupOrder = matchupMessage.content.split('\n').map(line => line.trim());
             console.log('Matchups Order:', matchupOrder);
 
+            // Pre-fill picksData for each user and matchup
+            const userList = require('./users.json');
+            for (const userId of Object.keys(userList)) {
+                if (!picksData[userId]) {
+                    picksData[userId] = {};
+                }
+                for (const matchup of matchupOrder) {
+                    // Initialize with a default value like 'No pick'
+                    if (!picksData[userId][matchup]) {
+                        picksData[userId][matchup] = 'No pick';
+                    }
+                }
+            }
+
             for (const matchup of matchupOrder) {
                 const [home, away] = matchup.split(' @ ');
 
                 for (const [channelName, channelId] of Object.entries(userChannels)) {
-                const selectionChannel = await client.channels.fetch(channelId); 
-                //const selectionChannel = await client.channels.fetch(selectionChannelId);
-                
-                const row = new ActionRowBuilder()
-                    .addComponents(
-                        new ButtonBuilder()
-                            .setCustomId(`${home}-win`)
-                            .setLabel(home)
-                            .setStyle(ButtonStyle.Primary)
-                            .setEmoji({ id: emojis[home] }),
-                        new ButtonBuilder()
-                            .setCustomId(`${away}-win`)
-                            .setLabel(away)
-                            .setStyle(ButtonStyle.Primary)
-                            .setEmoji({ id: emojis[away] }),
-                    );
+                    const selectionChannel = await client.channels.fetch(channelId);
 
-                await selectionChannel.send({ content: `${home} @ ${away}`, components: [row] });
+                    const row = new ActionRowBuilder()
+                        .addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`${home}-win`)
+                                .setLabel(home)
+                                .setStyle(ButtonStyle.Primary)
+                                .setEmoji({ id: emojis[home] }),
+                            new ButtonBuilder()
+                                .setCustomId(`${away}-win`)
+                                .setLabel(away)
+                                .setStyle(ButtonStyle.Primary)
+                                .setEmoji({ id: emojis[away] }),
+                        );
+
+                    await selectionChannel.send({ content: `${home} @ ${away}`, components: [row] });
                 }
-
             }
         } else {
             console.error('No matchup message found in the channel.');
@@ -224,6 +234,7 @@ async function createButtonsFromMatchups() {
     }
 }
 
+
 async function exportPicksToCSV(client) {
     if (Object.keys(picksData).length === 0) {
         console.error('No picks available to export.');
@@ -231,6 +242,12 @@ async function exportPicksToCSV(client) {
     }
 
     const rows = [];
+
+    // Load the user list from users.json
+    const userList = require('./users.json');
+
+    // Get the user IDs in the desired order
+    const orderedUserIds = Object.keys(userList);
 
     // Get all matchups from the first user (assumes all users pick for the same matchups)
     const matchups = Object.keys(picksData[Object.keys(picksData)[0]]);
@@ -240,16 +257,17 @@ async function exportPicksToCSV(client) {
         return;
     }
 
-    // Add the header row (first cell empty, followed by usernames)
-    const header = ['Matchup', ...Object.keys(picksData).map(userId => client.users.cache.get(userId)?.username || userId)];
+    // Add the header row (first cell empty, followed by user names from userList)
+    const header = ['Matchup', ...orderedUserIds.map(userId => userList[userId] || userId)];
     rows.push(header.join(','));
 
     // Add each matchup as a row
     matchups.forEach(matchup => {
         const row = [matchup];
 
-        for (const userId in picksData) {
-            row.push(picksData[userId][matchup] || 'No pick'); // Add each user's pick for this matchup
+        // Add each user's pick for this matchup, following the order in orderedUserIds
+        for (const userId of orderedUserIds) {
+            row.push(picksData[userId]?.[matchup] || 'No pick'); // Add each user's pick for this matchup
         }
 
         rows.push(row.join(','));
@@ -265,7 +283,7 @@ async function exportPicksToCSV(client) {
     fs.writeFileSync(filePath, csvContent, 'utf8');
     console.log('Picks exported to CSV:', filePath);
 
-    // Send the CSV to a specific user
+    // Send the CSV to a specific channel
     const csvChannelId = process.env.CSV_CHANNEL_ID;
     const channel = await client.channels.fetch(csvChannelId);
 
@@ -278,7 +296,11 @@ async function exportPicksToCSV(client) {
     } else {
         console.error('Failed to fetch the channel or the channel is not text-based. Could not send CSV file.');
     }
+
+    // Clear picksData after exporting
+    picksData = {};  // Clear the data structure
 }
+
 
 async function disableButtons(client) {
     try {
@@ -315,7 +337,7 @@ async function disableButtons(client) {
 }
 //#endregion
 
-//Abandoned Zone
+//Yet to be finished or implemented
 /*
 //Command for channel check and creation.
 async function createUserChannels(guild, client) {
