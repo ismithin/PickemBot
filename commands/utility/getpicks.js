@@ -8,13 +8,10 @@ module.exports = {
     async execute(interaction) {
         try {
             // Send an initial response to acknowledge the interaction
-            await interaction.reply({ content: 'Exporting picks to CSV and disabling buttons...', ephemeral: true });
+            await interaction.deferReply({ ephemeral: true });
 
             // Disable all buttons after exporting the picks
             await disableButtons(interaction.client);
-
-            //Send button disable confirmation message.
-            await interaction.editReply({ content: 'All buttons have been disabled.', ephemeral: true });
 
             // Export the picks to a CSV file
             await exportPicksToCSV(interaction.client);

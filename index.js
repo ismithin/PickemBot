@@ -38,7 +38,6 @@ module.exports = {
     exportPicksToCSV,
     disableButtons,
 };
-//createUserChannels,
 
 for (const folder of commandFolders) {
     const commandsPath = path.join(foldersPath, folder);
@@ -61,21 +60,6 @@ client.once('ready', async () => {
     console.log('NFL Pick\'Em Bot is online!');
     //scheduleLockTime();
 });
-
-// Example usage
-/*
-client.once('ready', async () => {
-    const guild = await client.guilds.fetch(guildId); // Replace with your guild ID
-    const categoryName = 'isaacs-picks'; // Replace with the name of the category you want to target
-
-    const category = await getCategoryByName(guild, categoryName);
-
-    if (category) {
-        console.log(`Found category: ${category.name} with ID: ${category.id}`);
-        // Now you can work with the category object
-    }
-});
-*/
 //#endregion
 
 //#region Interaction Handling
@@ -88,12 +72,16 @@ client.on(Events.InteractionCreate, async interaction => {
 });
 
 // Button Interaction Handling
+// Button Interaction Handling
 async function handleButtonInteraction(interaction) {
     try {
+        // Defer the update to acknowledge the interaction
+        await interaction.deferUpdate();
+
         const [team] = interaction.customId.split('-win');
         const userId = interaction.user.id;
 
-        // Use the original message content as the key (without the "Selected" line)
+        // Use the original message content as the key
         const matchup = interaction.message.content.split('\n')[0];
 
         if (!picksData[userId]) {
@@ -102,10 +90,6 @@ async function handleButtonInteraction(interaction) {
 
         // Update the pick for the current matchup
         picksData[userId][matchup] = team;
-
-        console.log('Picks Data:', picksData);
-
-        await interaction.deferUpdate();
 
         // Fetch the original message to update
         const message = await interaction.message.fetch();
@@ -133,23 +117,22 @@ async function handleButtonInteraction(interaction) {
             );
         });
 
-        // Add the "Selected" line
-        const content = `${matchup}\nSelected: ${team}`;
-
-        // Update both the content and components of the message
-        await message.edit({ content: content, components: components });
+        // Update the message components
+        await message.edit({ components: components });
 
     } catch (error) {
         console.error('Error handling button interaction:', error);
         if (!interaction.replied) {
-            await interaction.deferUpdate();
+            // Send an ephemeral error message
             await interaction.followUp({ content: 'There was an error handling your selection. Please try again later.', ephemeral: true });
         }
     }
 }
 
+
 //Command Interaction Handling
 async function handleCommandInteraction(interaction) {
+
     const command = client.commands.get(interaction.commandName);
 
     if (!command) {
@@ -187,7 +170,10 @@ async function createButtonsFromMatchups() {
         if (matchupMessage) {
             // Split the message content into individual matchups
             matchupOrder = matchupMessage.content.split('\n').map(line => line.trim());
-            console.log('Matchups Order:', matchupOrder);
+            //console.log('Matchups Order:', matchupOrder);
+
+            // Save matchup order to picksData for consistency
+            picksData.matchupOrder = matchupOrder;
 
             // Pre-fill picksData for each user and matchup
             const userList = require('./users.json');
@@ -202,29 +188,28 @@ async function createButtonsFromMatchups() {
                     }
                 }
             }
-
             for (const matchup of matchupOrder) {
                 const [home, away] = matchup.split(' @ ');
 
-                for (const [channelName, channelId] of Object.entries(userChannels)) {
-                    const selectionChannel = await client.channels.fetch(channelId);
+                //for (const [channelName, channelId] of Object.entries(userChannels)) {
+                const selectionChannel = await client.channels.fetch(selectionChannelId);
 
-                    const row = new ActionRowBuilder()
-                        .addComponents(
-                            new ButtonBuilder()
-                                .setCustomId(`${home}-win`)
-                                .setLabel(home)
-                                .setStyle(ButtonStyle.Primary)
-                                .setEmoji({ id: emojis[home] }),
-                            new ButtonBuilder()
-                                .setCustomId(`${away}-win`)
-                                .setLabel(away)
-                                .setStyle(ButtonStyle.Primary)
-                                .setEmoji({ id: emojis[away] }),
-                        );
+                const row = new ActionRowBuilder()
+                    .addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`${home}-win`)
+                            .setLabel(home)
+                            .setStyle(ButtonStyle.Primary)
+                            .setEmoji({ id: emojis[home] }),
+                        new ButtonBuilder()
+                            .setCustomId(`${away}-win`)
+                            .setLabel(away)
+                            .setStyle(ButtonStyle.Primary)
+                            .setEmoji({ id: emojis[away] }),
+                    );
 
-                    await selectionChannel.send({ content: `${home} @ ${away}`, components: [row] });
-                }
+                await selectionChannel.send({ content: `${home} @ ${away}`, components: [row] });
+                //}
             }
         } else {
             console.error('No matchup message found in the channel.');
@@ -234,10 +219,10 @@ async function createButtonsFromMatchups() {
     }
 }
 
-
 async function exportPicksToCSV(client) {
     if (Object.keys(picksData).length === 0) {
         console.error('No picks available to export.');
+        //Can I edit the reply to this as well, currently only way to see no picks available is the console log.
         return; // Exit the function early if there are no picks
     }
 
@@ -249,10 +234,10 @@ async function exportPicksToCSV(client) {
     // Get the user IDs in the desired order
     const orderedUserIds = Object.keys(userList);
 
-    // Get all matchups from the first user (assumes all users pick for the same matchups)
-    const matchups = Object.keys(picksData[Object.keys(picksData)[0]]);
+    // Get the matchup order from picksData
+    const matchupOrder = picksData.matchupOrder;
 
-    if (!matchups || matchups.length === 0) {
+    if (!matchupOrder || matchupOrder.length === 0) {
         console.error('No matchups available for exporting.');
         return;
     }
@@ -262,7 +247,7 @@ async function exportPicksToCSV(client) {
     rows.push(header.join(','));
 
     // Add each matchup as a row
-    matchups.forEach(matchup => {
+    matchupOrder.forEach(matchup => {
         const row = [matchup];
 
         // Add each user's pick for this matchup, following the order in orderedUserIds
@@ -292,45 +277,50 @@ async function exportPicksToCSV(client) {
             content: 'Here is the exported CSV file for this week.',
             files: [filePath]
         });
-        console.log(`CSV file sent to channel: ${channel.name}`);
     } else {
         console.error('Failed to fetch the channel or the channel is not text-based. Could not send CSV file.');
     }
 
-    // Clear picksData after exporting
-    picksData = {};  // Clear the data structure
-}
+    console.log('picksData after /getpicks:', picksData);
 
+    // Clear picksData after exporting
+    for (const key in picksData) {
+        if (Object.prototype.hasOwnProperty.call(picksData, key)) {
+            delete picksData[key];
+        }
+    }
+
+    console.log('picksData after /getpicks:', picksData);
+
+}
 
 async function disableButtons(client) {
     try {
         const userChannels = JSON.parse(await fs.promises.readFile('./pickchannels.json', 'utf8'));
 
-        for (const [channelName, channelId] of Object.entries(userChannels)) {
-            const channel = await client.channels.fetch(channelId);
-            //const channel = await client.channels.fetch(selectionChannelId);
+        //for (const [channelName, channelId] of Object.entries(userChannels)) {
+        //const channel = await client.channels.fetch(channelId);
+        const channel = await client.channels.fetch(selectionChannelId);
 
 
-            if (channel && channel.isTextBased()) {
-                const messages = await channel.messages.fetch({ limit: 100 });
+        if (channel && channel.isTextBased()) {
+            const messages = await channel.messages.fetch({ limit: 100 });
 
-                messages.forEach(async (message) => {
-                    if (message.components.length > 0) {
-                        const disabledRow = message.components.map(row =>
-                            new ActionRowBuilder().addComponents(
-                                row.components.map(button =>
-                                    ButtonBuilder.from(button).setDisabled(true)
-                                )
+            messages.forEach(async (message) => {
+                if (message.components.length > 0) {
+                    const disabledRow = message.components.map(row =>
+                        new ActionRowBuilder().addComponents(
+                            row.components.map(button =>
+                                ButtonBuilder.from(button).setDisabled(true)
                             )
-                        );
+                        )
+                    );
 
-                        await message.edit({ components: disabledRow });
-                    }
-                });
-
-                //console.log(`Disabled buttons in channel: ${channelName}`);
-            }
+                    await message.edit({ components: disabledRow });
+                }
+            });
         }
+        //}
     } catch (error) {
         console.error('Failed to disable buttons in channels:', error);
     }

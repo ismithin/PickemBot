@@ -9,8 +9,7 @@ module.exports = {
         .setDescription('Manually create pickem buttons for the week.'),
     async execute(interaction) {
         try {
-            // Send an initial response to acknowledge the interaction
-            await interaction.reply({ content: 'Creating picks...', ephemeral: true });
+            await interaction.deferReply();
 
             // Call the existing function to create the poll
             await createButtonsFromMatchups(interaction.client); // Replace with actual IDs
